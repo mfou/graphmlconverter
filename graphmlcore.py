@@ -706,9 +706,12 @@ def parse_graphml(input_path: str) -> Dict[str, Any]:
             if fill is not None:
                 node_data['fill_color'] = fill.get('color', '#FFFFFF')
                 node_data['fill_transparent'] = fill.get('transparent', 'false') == 'true'
+                # BUGFIX: Respect hasColor attribute - if hasColor="false", don't fill
+                node_data['fill_has_color'] = fill.get('hasColor', 'true') == 'true'
             else:
                 node_data['fill_color'] = '#FFFFFF'
                 node_data['fill_transparent'] = False
+                node_data['fill_has_color'] = True
             
             # Extract border style
             border = shape_node.find('.//y:BorderStyle', NAMESPACES)
@@ -716,10 +719,13 @@ def parse_graphml(input_path: str) -> Dict[str, Any]:
                 node_data['border_color'] = border.get('color', '#000000')
                 node_data['border_width'] = float(border.get('width', '1.0'))
                 node_data['border_type'] = border.get('type', 'line')
+                # BUGFIX: Respect hasColor attribute - if hasColor="false", don't draw border
+                node_data['border_has_color'] = border.get('hasColor', 'true') == 'true'
             else:
                 node_data['border_color'] = '#000000'
                 node_data['border_width'] = 1.0
                 node_data['border_type'] = 'line'
+                node_data['border_has_color'] = True
             
             # Extract shape type
             shape = shape_node.find('.//y:Shape', NAMESPACES)
@@ -728,22 +734,32 @@ def parse_graphml(input_path: str) -> Dict[str, Any]:
             else:
                 node_data['shape_type'] = 'rectangle'
             
-            # Extract labels
-            label_elem = shape_node.find('.//y:NodeLabel', NAMESPACES)
-            if label_elem is not None:
-                node_data['label'] = {
-                    'text': label_elem.text or '',
-                    'x': float(label_elem.get('x', 0)),
-                    'y': float(label_elem.get('y', 0)),
-                    'width': float(label_elem.get('width', 0)),
-                    'height': float(label_elem.get('height', 0)),
-                    'fontSize': float(label_elem.get('fontSize', 12)),
-                    'fontFamily': label_elem.get('fontFamily', 'Dialog'),
-                    'fontStyle': label_elem.get('fontStyle', 'plain'),
-                    'textColor': label_elem.get('textColor', '#000000'),
-                    'backgroundColor': label_elem.get('backgroundColor', '#ffffff'),
-                    'lineColor': label_elem.get('lineColor', '#000000')
-                }
+            # Extract all labels (multiple labels allowed per ShapeNode)
+            label_elements = shape_node.findall('.//y:NodeLabel', NAMESPACES)
+            if label_elements:
+                node_data['labels'] = []
+                for label_elem in label_elements:
+                    # Skip labels with hasText="false" (invisible labels)
+                    if label_elem.get('hasText', 'true') == 'false':
+                        continue
+                    
+                    node_data['labels'].append({
+                        'text': label_elem.text or '',
+                        'x': float(label_elem.get('x', 0)),
+                        'y': float(label_elem.get('y', 0)),
+                        'width': float(label_elem.get('width', 0)),
+                        'height': float(label_elem.get('height', 0)),
+                        'fontSize': float(label_elem.get('fontSize', 12)),
+                        'fontFamily': label_elem.get('fontFamily', 'Dialog'),
+                        'fontStyle': label_elem.get('fontStyle', 'plain'),
+                        'textColor': label_elem.get('textColor', '#000000'),
+                        'backgroundColor': label_elem.get('backgroundColor', '#ffffff'),
+                        'lineColor': label_elem.get('lineColor', '#000000'),
+                        'alignment': label_elem.get('alignment', 'center'),
+                        'modelName': label_elem.get('modelName', 'internal'),
+                        'modelPosition': label_elem.get('modelPosition', 'c'),
+                        'hasLineColor': label_elem.get('hasLineColor', 'false') == 'true'
+                    })
             
             shape_nodes.append(node_data)
         
@@ -768,8 +784,11 @@ def parse_graphml(input_path: str) -> Dict[str, Any]:
             if fill is not None:
                 node_data['body_fill_color'] = fill.get('color', '#F0F0F0')
                 node_data['fill_transparent'] = fill.get('transparent', 'false') == 'true'
+                # BUGFIX: Respect hasColor attribute - if hasColor="false", don't fill
+                node_data['fill_has_color'] = fill.get('hasColor', 'true') == 'true'
             else:
                 node_data['body_fill_color'] = '#F0F0F0'
+                node_data['fill_has_color'] = True
             
             # Extract BorderStyle color and width
             border = group_node.find('.//y:BorderStyle', NAMESPACES)
@@ -777,27 +796,40 @@ def parse_graphml(input_path: str) -> Dict[str, Any]:
                 node_data['body_border_color'] = border.get('color', '#999999')
                 node_data['body_border_width'] = float(border.get('width', '1.0'))
                 node_data['body_border_type'] = border.get('type', 'line')
+                # BUGFIX: Respect hasColor attribute - if hasColor="false", don't draw border
+                node_data['border_has_color'] = border.get('hasColor', 'true') == 'true'
             else:
                 node_data['body_border_color'] = '#999999'
                 node_data['body_border_width'] = 1.0
                 node_data['body_border_type'] = 'line'
+                node_data['border_has_color'] = True
             
-            # Extract header fill color and label (NodeLabel)
-            label = group_node.find('.//y:NodeLabel', NAMESPACES)
-            if label is not None:
-                node_data['header_fill_color'] = label.get('backgroundColor', '#CCCCCC')
+            # Extract header fill color and all labels (NodeLabel)
+            label_elements = group_node.findall('.//y:NodeLabel', NAMESPACES)
+            if label_elements:
+                # Use first label's background color for header
+                node_data['header_fill_color'] = label_elements[0].get('backgroundColor', '#CCCCCC')
                 
-                # Extract label properties
-                node_data['label'] = {
-                    'text': label.text or '',
-                    'fontFamily': label.get('fontFamily', 'Dialog'),
-                    'fontSize': int(label.get('fontSize', '12')),
-                    'fontStyle': label.get('fontStyle', 'plain'),
-                    'textColor': label.get('textColor', '#000000'),
-                    'alignment': label.get('alignment', 'center'),
-                    'underlined': label.get('underline', 'false') == 'true',
-                    'hasLineColor': label.get('hasLineColor', 'false') == 'true',
-                }
+                # Extract all label properties
+                node_data['labels'] = []
+                for label in label_elements:
+                    # Skip labels with hasText="false"
+                    if label.get('hasText', 'true') == 'false':
+                        continue
+                    
+                    node_data['labels'].append({
+                        'text': label.text or '',
+                        'fontFamily': label.get('fontFamily', 'Dialog'),
+                        'fontSize': int(label.get('fontSize', '12')),
+                        'fontStyle': label.get('fontStyle', 'plain'),
+                        'textColor': label.get('textColor', '#000000'),
+                        'alignment': label.get('alignment', 'center'),
+                        'backgroundColor': label.get('backgroundColor', '#CCCCCC'),
+                        'underlined': label.get('underline', 'false') == 'true',
+                        'hasLineColor': label.get('hasLineColor', 'false') == 'true',
+                        'modelName': label.get('modelName', 'internal'),
+                        'modelPosition': label.get('modelPosition', 't')
+                    })
             else:
                 node_data['header_fill_color'] = '#CCCCCC'
             
@@ -1149,8 +1181,26 @@ class HTMLTableParser(html.parser.HTMLParser):
         if tag == 'font':
             self.current_color = None
         elif tag in ('b', 'strong'):
+            # When closing a bold tag, flush current text buffer with bold flag still active
+            if self.text_buffer and self.current_cell is not None:
+                self.current_cell_segments.append({
+                    'text': self.text_buffer,
+                    'color': self.current_color,
+                    'is_bold': True,  # Capture bold state BEFORE clearing it
+                    'is_italic': self.current_is_italic
+                })
+                self.text_buffer = ''
             self.current_is_bold = False
         elif tag in ('i', 'em'):
+            # When closing an italic tag, flush current text buffer with italic flag still active
+            if self.text_buffer and self.current_cell is not None:
+                self.current_cell_segments.append({
+                    'text': self.text_buffer,
+                    'color': self.current_color,
+                    'is_bold': self.current_is_bold,
+                    'is_italic': True  # Capture italic state BEFORE clearing it
+                })
+                self.text_buffer = ''
             self.current_is_italic = False
         elif tag == 'td':
             if self.text_buffer:

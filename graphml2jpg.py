@@ -53,6 +53,95 @@ class ImprovedGraphMLVisualizer:
         self.min_y = float('inf')
         self.max_x = float('-inf')
         self.max_y = float('-inf')
+    
+    def _get_best_node_label(self, parent_elem) -> str:
+        """
+        Extract the best NodeLabel from a parent element.
+        Can handle multiple NodeLabel elements (e.g., n3::n4 in simple3.graphml).
+        
+        Strategy:
+        1. Find ALL NodeLabel elements
+        2. Filter: exclude labels with hasText="false" or empty text
+        3. Prefer: label with longest non-empty text
+        4. Fallback: return first visible label
+        5. Default: return empty string
+        
+        Returns:
+            Best label text or empty string
+        """
+        labels = parent_elem.findall('.//y:NodeLabel', NAMESPACES)
+        if not labels:
+            return ''
+        
+        best_text = ''
+        best_length = 0
+        
+        for label_elem in labels:
+            # Check if hasText="false" attribute
+            has_text = label_elem.get('hasText', 'true')
+            if has_text == 'false':
+                continue
+            
+            # Get text content
+            label_text = (label_elem.text or '').strip()
+            
+            # Prefer label with non-empty text
+            if label_text and len(label_text) > best_length:
+                best_text = label_text
+                best_length = len(label_text)
+        
+        return best_text
+    
+    def _get_best_node_label_element(self, parent_elem):
+        """
+        Extract the best NodeLabel ELEMENT from a parent element.
+        Can handle multiple NodeLabel elements (e.g., n3::n4 in simple3.graphml).
+        
+        Strategy:
+        1. Find ALL NodeLabel elements
+        2. Filter: exclude labels with hasText="false"
+        3. Prefer: label with non-empty text
+        4. Fallback: return first label with largest dimensions (width * height)
+        5. Default: return first label or None
+        
+        Returns:
+            Best NodeLabel element or None
+        """
+        labels = parent_elem.findall('.//y:NodeLabel', NAMESPACES)
+        if not labels:
+            return None
+        
+        # First pass: find label with non-empty text
+        best_elem = None
+        best_text_length = 0
+        
+        for label_elem in labels:
+            # Check if hasText="false" attribute
+            has_text = label_elem.get('hasText', 'true')
+            if has_text == 'false':
+                continue
+            
+            # Get text content
+            label_text = (label_elem.text or '').strip()
+            
+            # Prefer label with non-empty text
+            if label_text and len(label_text) > best_text_length:
+                best_elem = label_elem
+                best_text_length = len(label_text)
+        
+        # If no text-based label found, return first non-hasText=false label
+        if best_elem is None:
+            for label_elem in labels:
+                has_text = label_elem.get('hasText', 'true')
+                if has_text != 'false':
+                    best_elem = label_elem
+                    break
+        
+        # If still nothing, return first label
+        if best_elem is None and labels:
+            best_elem = labels[0]
+        
+        return best_elem
         
     def parse(self):
         """Parse the GraphML file"""
@@ -78,9 +167,7 @@ class ImprovedGraphMLVisualizer:
             if svg_node is not None:
                 geom = svg_node.find('.//y:Geometry', NAMESPACES)
                 node_type = 'SVGNode'
-                label_elem = svg_node.find('.//y:NodeLabel', NAMESPACES)
-                if label_elem is not None:
-                    label_text = label_elem.text or ''
+                label_text = self._get_best_node_label(svg_node)
             
             # Check for ShapeNode
             if geom is None:
@@ -88,9 +175,7 @@ class ImprovedGraphMLVisualizer:
                 if shape_node is not None:
                     geom = shape_node.find('.//y:Geometry', NAMESPACES)
                     node_type = 'ShapeNode'
-                    label_elem = shape_node.find('.//y:NodeLabel', NAMESPACES)
-                    if label_elem is not None:
-                        label_text = label_elem.text or ''
+                    label_text = self._get_best_node_label(shape_node)
             
             if geom is not None:
                 x = float(geom.get('x', 0))
@@ -117,10 +202,7 @@ class ImprovedGraphMLVisualizer:
             
             group_node = node.find('.//y:ProxyAutoBoundsNode/y:Realizers/y:GroupNode[1]', NAMESPACES)
             if group_node is not None:
-                label_text = ''
-                label_elem = group_node.find('.//y:NodeLabel', NAMESPACES)
-                if label_elem is not None:
-                    label_text = label_elem.text or ''
+                label_text = self._get_best_node_label(group_node)
                 
                 geom = group_node.find('.//y:Geometry', NAMESPACES)
                 if geom is not None:
@@ -1447,21 +1529,21 @@ class ImprovedGraphMLVisualizer:
             # Check ShapeNode
             shape_node = node_elem.find('.//y:ShapeNode', NAMESPACES)
             if shape_node is not None:
-                label_elem = shape_node.find('.//y:NodeLabel', NAMESPACES)
+                label_elem = self._get_best_node_label_element(shape_node)
                 geom_elem = shape_node.find('.//y:Geometry', NAMESPACES)
             
             # Check SVGNode
             if label_elem is None:
                 svg_node = node_elem.find('.//y:SVGNode', NAMESPACES)
                 if svg_node is not None:
-                    label_elem = svg_node.find('.//y:NodeLabel', NAMESPACES)
+                    label_elem = self._get_best_node_label_element(svg_node)
                     geom_elem = svg_node.find('.//y:Geometry', NAMESPACES)
             
             # Check GroupNode
             if label_elem is None:
                 group_node = node_elem.find('.//y:ProxyAutoBoundsNode/y:Realizers/y:GroupNode[1]', NAMESPACES)
                 if group_node is not None:
-                    label_elem = group_node.find('.//y:NodeLabel', NAMESPACES)
+                    label_elem = self._get_best_node_label_element(group_node)
                     geom_elem = group_node.find('.//y:Geometry', NAMESPACES)
             
             if label_elem is not None and geom_elem is not None:
@@ -1501,21 +1583,21 @@ class ImprovedGraphMLVisualizer:
             # Check ShapeNode
             shape_node = node_elem.find('.//y:ShapeNode', NAMESPACES)
             if shape_node is not None:
-                label_elem = shape_node.find('.//y:NodeLabel', NAMESPACES)
+                label_elem = self._get_best_node_label_element(shape_node)
                 geom_elem = shape_node.find('.//y:Geometry', NAMESPACES)
             
             # Check SVGNode
             if label_elem is None:
                 svg_node = node_elem.find('.//y:SVGNode', NAMESPACES)
                 if svg_node is not None:
-                    label_elem = svg_node.find('.//y:NodeLabel', NAMESPACES)
+                    label_elem = self._get_best_node_label_element(svg_node)
                     geom_elem = svg_node.find('.//y:Geometry', NAMESPACES)
             
             # Check GroupNode
             if label_elem is None:
                 group_node = node_elem.find('.//y:ProxyAutoBoundsNode/y:Realizers/y:GroupNode[1]', NAMESPACES)
                 if group_node is not None:
-                    label_elem = group_node.find('.//y:NodeLabel', NAMESPACES)
+                    label_elem = self._get_best_node_label_element(group_node)
                     geom_elem = group_node.find('.//y:Geometry', NAMESPACES)
             
             if label_elem is not None and geom_elem is not None:
@@ -1580,7 +1662,7 @@ class ImprovedGraphMLVisualizer:
                     print(f"    {key}: {value}")
         print("\n" + "="*80)
 
-# Main execution
+# Test: Verify convert works
 if __name__ == '__main__':
 
     visualizer = ImprovedGraphMLVisualizer('./graphml/simple1.graphml', scale=2.5)
@@ -1592,3 +1674,8 @@ if __name__ == '__main__':
     visualizer.parse()
     visualizer.print_edge_label_parameters()
     visualizer.draw_to_image('./target/simple2.jpg')
+
+    visualizer = ImprovedGraphMLVisualizer('./graphml/simple3.graphml', scale=2.5)
+    visualizer.parse()
+    visualizer.print_edge_label_parameters()
+    visualizer.draw_to_image('./target/simple3.jpg')

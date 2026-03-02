@@ -556,32 +556,22 @@ def convert(input_path: str, output_path: str, direction: str = 'TD') -> str:
     return output_path
 
 
-# Main execution
+# Test: Verify convert works
 if __name__ == '__main__':
-    # Default example: simple2.graphml
+    direction = 'TD'  # Top-Down by default
+
+    input_file = './graphml/simple.graphml'
+    output_file = './target/simple.md'
+    convert(input_file, output_file, direction)
+
+    input_file = './graphml/simple1.graphml'
+    output_file = './target/simple1.md'
+    convert(input_file, output_file, direction)
+
     input_file = './graphml/simple2.graphml'
     output_file = './target/simple2.md'
-    
-    if len(sys.argv) > 1:
-        input_file = sys.argv[1]
-    
-    if len(sys.argv) > 2:
-        output_file = sys.argv[2]
-    
-    if len(sys.argv) > 3:
-        direction = sys.argv[3]
-    else:
-        direction = 'TD'  # Top-Down by default
-    
-    print(f"Converting: {input_file} -> {output_file}")
-    print(f"Direction: {direction}")
-    
     convert(input_file, output_file, direction)
     
-    # Display the generated content
-    with open(output_file, 'r', encoding='utf-8') as f:
-        content = f.read()
-        print("\n" + "="*60)
-        print("Generated Markdown content:")
-        print("="*60)
-        print(content)
+    input_file = './graphml/simple3.graphml'
+    output_file = './target/simple3.md'
+    convert(input_file, output_file, direction)

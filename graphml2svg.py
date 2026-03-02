@@ -534,6 +534,10 @@ def draw_group_nodes(groups: List[Dict[str, Any]], bg_x: float, bg_y: float) -> 
         body_border_width = group.get('body_border_width', 1.0)
         body_border_type = group.get('body_border_type', 'line')
         
+        # BUGFIX: Respect hasColor attributes
+        fill_has_color = group.get('fill_has_color', True)
+        border_has_color = group.get('border_has_color', True)
+        
         # Header styling
         header_fill_color = convert_hex_color_to_rgba(group.get('header_fill_color', '#CCCCCC'))
         header_height = group.get('header_height', 20.0)
@@ -541,10 +545,14 @@ def draw_group_nodes(groups: List[Dict[str, Any]], bg_x: float, bg_y: float) -> 
         # Get line style attributes for the group border (using body border settings)
         body_line_styles = get_line_style_attributes(body_border_type, body_border_width)
         
-        # Build stroke attributes for the group border (always apply the border style)
-        group_stroke_attrs = f'stroke="{body_border_color}" stroke-width="{body_border_width}"'
-        for key, value in body_line_styles.items():
-            group_stroke_attrs += f' {key}="{value}"'
+        # Build stroke attributes for the group border (only apply if border_has_color is True)
+        if border_has_color:
+            group_stroke_attrs = f'stroke="{body_border_color}" stroke-width="{body_border_width}"'
+            for key, value in body_line_styles.items():
+                group_stroke_attrs += f' {key}="{value}"'
+        else:
+            # No border: use transparent/none stroke
+            group_stroke_attrs = 'stroke="none"'
         
         # Calculate position (world coordinates)
         group_x = geom['x']
@@ -564,53 +572,55 @@ def draw_group_nodes(groups: List[Dict[str, Any]], bg_x: float, bg_y: float) -> 
             header_fill_color
         ))
         
-        # Draw body rectangle (background color only, no border)
+        # Draw body rectangle (background color only if fill_has_color is True)
         body_y = group_y + header_height
         body_height = geom['height'] - header_height
+        # BUGFIX: Only fill if fill_has_color is True, otherwise use transparent fill
+        body_fill = body_fill_color if fill_has_color else 'none'
         svg_lines.append('      <rect x="{}" y="{}" width="{}" height="{}" fill="{}" stroke="none" rx="2" ry="2"/>'.format(
             group_x, body_y, geom['width'], body_height,
-            body_fill_color
+            body_fill
         ))
         
-        # Draw group label if present (inside the header)
-        if 'label' in group:
-            label = group['label']
-            font_family = map_font_family(label.get('fontFamily', 'Dialog'))
-            font_style, font_weight = get_font_style_attributes(label.get('fontStyle', 'plain'))
-            text_anchor = get_text_anchor(label.get('alignment', 'center'))
-            
-            # Vertical position (centered in header)
-            label_y = group_y + header_height / 2 + label.get('fontSize', 12) / 3
-            
-            # Calculate x position based on alignment
-            # A small margin from the edges
-            margin = 5
-            
-            if text_anchor == 'start':  # left alignment
-                label_x = group_x + margin
-            elif text_anchor == 'end':  # right alignment
-                label_x = group_x + geom['width'] - margin
-            else:  # middle/center alignment
-                label_x = group_x + geom['width'] / 2
-            
-            # Build text attributes
-            text_attrs = f'font-family="{font_family}" font-size="{label.get("fontSize", 12)}" fill="{label.get("textColor", "#000000")}" text-anchor="{text_anchor}" font-style="{font_style}" font-weight="{font_weight}"'
-            
-            # Add underline decoration if needed
-            if label.get('underlined', False):
-                text_attrs += ' text-decoration="underline"'
-            
-            # Add stroke attribute based on hasLineColor
-            if label.get('hasLineColor', False):
-                text_attrs += f' stroke="{label.get("textColor", "#000000")}"'
-            else:
-                text_attrs += ' stroke="none"'
-            
-            svg_lines.append('      <text x="{}" y="{}" {}>'.format(
-                label_x, label_y, text_attrs
-            ))
-            svg_lines.append(label['text'])
-            svg_lines.append('      </text>')
+        # Draw all group labels if present (usually just header label)
+        if 'labels' in group:
+            for label in group['labels']:
+                font_family = map_font_family(label.get('fontFamily', 'Dialog'))
+                font_style, font_weight = get_font_style_attributes(label.get('fontStyle', 'plain'))
+                text_anchor = get_text_anchor(label.get('alignment', 'center'))
+                
+                # Vertical position (centered in header)
+                label_y = group_y + header_height / 2 + label.get('fontSize', 12) / 3
+                
+                # Calculate x position based on alignment
+                # A small margin from the edges
+                margin = 5
+                
+                if text_anchor == 'start':  # left alignment
+                    label_x = group_x + margin
+                elif text_anchor == 'end':  # right alignment
+                    label_x = group_x + geom['width'] - margin
+                else:  # middle/center alignment
+                    label_x = group_x + geom['width'] / 2
+                
+                # Build text attributes
+                text_attrs = f'font-family="{font_family}" font-size="{label.get("fontSize", 12)}" fill="{label.get("textColor", "#000000")}" text-anchor="{text_anchor}" font-style="{font_style}" font-weight="{font_weight}"'
+                
+                # Add underline decoration if needed
+                if label.get('underlined', False):
+                    text_attrs += ' text-decoration="underline"'
+                
+                # Add stroke attribute based on hasLineColor
+                if label.get('hasLineColor', False):
+                    text_attrs += f' stroke="{label.get("textColor", "#000000")}"'
+                else:
+                    text_attrs += ' stroke="none"'
+                
+                svg_lines.append('      <text x="{}" y="{}" {}>'.format(
+                    label_x, label_y, text_attrs
+                ))
+                svg_lines.append(label['text'])
+                svg_lines.append('      </text>')
         
         svg_lines.append('    </g>')
     
@@ -627,6 +637,10 @@ def draw_html_table_as_svg(rows: List[List[Dict]], x: float, y: float, max_width
     - NO background color (transparent cells)
     - Left-aligned text in cells
     - No header styling (all cells same style)
+    
+    Supports both cell formats:
+    - Old format: {'text': '...', 'is_bold': bool, 'is_italic': bool}
+    - New format: {'segments': [{'text': '...', 'is_bold': bool, 'is_italic': bool, 'color': '...'}], 'text': ''}
     
     Args:
         rows: List of rows, each row is a list of cell dicts with 'text', 'is_bold', 'is_italic'
@@ -646,6 +660,17 @@ def draw_html_table_as_svg(rows: List[List[Dict]], x: float, y: float, max_width
     
     svg_lines = []
     
+    # Helper function to extract text from a cell (supports both old and new formats)
+    def get_cell_text(cell: Dict) -> str:
+        """Extract concatenated text from cell, supporting both formats."""
+        if 'segments' in cell and cell['segments']:
+            # New format: segments list
+            return ''.join(seg.get('text', '') for seg in cell['segments'] if isinstance(seg, dict))
+        elif 'text' in cell:
+            # Old format or fallback
+            return cell.get('text', '')
+        return ''
+    
     # Calculate grid dimensions
     num_rows = len(rows)
     num_cols = max(len(row) for row in rows) if rows else 1
@@ -659,7 +684,8 @@ def draw_html_table_as_svg(rows: List[List[Dict]], x: float, y: float, max_width
     for row in rows:
         for col_idx, cell in enumerate(row):
             # Estimate width: ~0.6 chars per pixel at this font size
-            text_width = len(cell['text']) * font_size * 0.6
+            cell_text = get_cell_text(cell)
+            text_width = len(cell_text) * font_size * 0.6
             col_widths[col_idx] = max(col_widths[col_idx], text_width)
     
     # Adjust column widths to fit in available space
@@ -706,22 +732,59 @@ def draw_html_table_as_svg(rows: List[List[Dict]], x: float, y: float, max_width
             text_x = cell_x + cell_padding  # Left-align with padding
             text_y = cell_y + cell_height / 2 + font_size / 3
             
-            # Determine font styling
-            font_weight = 'bold' if cell.get('is_bold', False) else 'normal'
-            font_style = 'italic' if cell.get('is_italic', False) else 'normal'
+            # Get segments if available (new format), otherwise treat as single segment
+            segments = cell.get('segments', [])
             
-            # Left-aligned text (text-anchor="start")
-            text_attrs = f'font-family="sans-serif" font-size="{font_size}" font-style="{font_style}" font-weight="{font_weight}" fill="{text_color}" text-anchor="start" stroke="none"'
-            
-            # Truncate text if too long
-            cell_text = cell['text']
-            max_chars = int((cell_width - 2 * cell_padding) / (font_size * 0.6))
-            if len(cell_text) > max_chars:
-                cell_text = cell_text[:max(3, max_chars - 2)] + '..'
-            
-            svg_lines.append('      <text x="{}" y="{}" {}>{}</text>'.format(
-                text_x, text_y, text_attrs, cell_text
-            ))
+            if segments:
+                # New format: render with styled tspan elements for each segment
+                text_attrs = f'font-family="sans-serif" font-size="{font_size}" fill="{text_color}" text-anchor="start" stroke="none"'
+                svg_lines.append('      <text x="{}" y="{}" {}>'.format(text_x, text_y, text_attrs))
+                
+                for segment in segments:
+                    if isinstance(segment, dict):
+                        seg_text = segment.get('text', '')
+                        seg_color = segment.get('color')
+                        seg_bold = segment.get('is_bold', False)
+                        seg_italic = segment.get('is_italic', False)
+                        
+                        # Truncate if needed
+                        max_chars = int((cell_width - 2 * cell_padding) / (font_size * 0.6))
+                        if len(seg_text) > max_chars:
+                            seg_text = seg_text[:max(3, max_chars - 2)] + '..'
+                        
+                        # Build tspan attributes
+                        tspan_attrs = ''
+                        if seg_color:
+                            tspan_attrs += f' fill="{seg_color}"'
+                        if seg_bold:
+                            tspan_attrs += ' font-weight="bold"'
+                        if seg_italic:
+                            tspan_attrs += ' font-style="italic"'
+                        
+                        if tspan_attrs:
+                            svg_lines.append(f'        <tspan{tspan_attrs}>{seg_text}</tspan>')
+                        else:
+                            svg_lines.append(f'        <tspan>{seg_text}</tspan>')
+                    else:
+                        # String segment (fallback)
+                        svg_lines.append(f'        <tspan>{str(segment)}</tspan>')
+                
+                svg_lines.append('      </text>')
+            else:
+                # Old format: single text element with styling
+                font_weight = 'bold' if cell.get('is_bold', False) else 'normal'
+                font_style = 'italic' if cell.get('is_italic', False) else 'normal'
+                
+                text_attrs = f'font-family="sans-serif" font-size="{font_size}" font-style="{font_style}" font-weight="{font_weight}" fill="{text_color}" text-anchor="start" stroke="none"'
+                
+                cell_text = cell.get('text', '')
+                max_chars = int((cell_width - 2 * cell_padding) / (font_size * 0.6))
+                if len(cell_text) > max_chars:
+                    cell_text = cell_text[:max(3, max_chars - 2)] + '..'
+                
+                svg_lines.append('      <text x="{}" y="{}" {}>{}</text>'.format(
+                    text_x, text_y, text_attrs, cell_text
+                ))
             
             current_x += cell_width
     
@@ -754,13 +817,22 @@ def draw_shape_nodes(shape_nodes: List[Dict[str, Any]]) -> List[str]:
         border_width = shape_node.get('border_width', 1.0)
         border_type = shape_node.get('border_type', 'line')
         
+        # BUGFIX: Respect hasColor attributes
+        fill_has_color = shape_node.get('fill_has_color', True)
+        border_has_color = shape_node.get('border_has_color', True)
+        
         # Get line style attributes for border
         line_styles = get_line_style_attributes(border_type, border_width)
         
-        # Build stroke attributes
-        stroke_attrs = f'stroke="{border_color}" stroke-width="{border_width}" fill="{fill_color}"'
-        for key, value in line_styles.items():
-            stroke_attrs += f' {key}="{value}"'
+        # Build stroke attributes (only apply fill and stroke if their hasColor is True)
+        final_fill = fill_color if fill_has_color else 'none'
+        if border_has_color:
+            stroke_attrs = f'stroke="{border_color}" stroke-width="{border_width}" fill="{final_fill}"'
+            for key, value in line_styles.items():
+                stroke_attrs += f' {key}="{value}"'
+        else:
+            # No border: use transparent stroke
+            stroke_attrs = f'stroke="none" fill="{final_fill}"'
         
         svg_lines.append('    <g text-rendering="geometricPrecision" shape-rendering="geometricPrecision">')
         
@@ -870,126 +942,148 @@ def draw_shape_nodes(shape_nodes: List[Dict[str, Any]]) -> List[str]:
                 stroke_attrs
             ))
         
-        # Draw label if present
-        if 'label' in shape_node:
-            label = shape_node['label']
-            font_family = map_font_family(label.get('fontFamily', 'Dialog'))
-            text_anchor = get_text_anchor(label.get('alignment', 'center'))
-            font_size = label.get('fontSize', 12)
-            
-            # Get font style if available
-            font_style = 'normal'
-            font_weight = 'normal'
-            if 'fontStyle' in label:
-                font_style, font_weight = get_font_style_attributes(label.get('fontStyle', 'plain'))
-            
-            # Check if label contains HTML
-            if label.get('text', '').startswith('<'):
-                # Parse HTML content
-                html_data = parse_html_label(label['text'])
+        # Draw all labels if present (multiple labels allowed)
+        if 'labels' in shape_node:
+            for label in shape_node['labels']:
+                font_family = map_font_family(label.get('fontFamily', 'Dialog'))
+                text_anchor = get_text_anchor(label.get('alignment', 'center'))
+                font_size = label.get('fontSize', 12)
                 
-                # Check if it's a table
-                if html_data.get('is_table', False):
-                    # Draw HTML table as SVG
-                    padding = 6
-                    table_x = geom['x'] + padding
-                    table_y = geom['y'] + padding
-                    table_width = geom['width'] - 2 * padding
-                    table_height = geom['height'] - 2 * padding
+                # Get font style if available
+                font_style = 'normal'
+                font_weight = 'normal'
+                if 'fontStyle' in label:
+                    font_style, font_weight = get_font_style_attributes(label.get('fontStyle', 'plain'))
+                
+                # Check if label contains HTML
+                if label.get('text', '').startswith('<'):
+                    # Parse HTML content
+                    html_data = parse_html_label(label['text'])
                     
-                    table_svg = draw_html_table_as_svg(
-                        html_data['rows'],
-                        table_x, table_y,
-                        table_width, table_height,
-                        font_size=11,  # Slightly smaller for table
-                        text_color=label.get('textColor', '#000000')
-                        # Uses default: no borders, no background (transparent)
-                    )
-                    svg_lines.extend(table_svg)
-                else:
-                    # Draw as text lines with potential colored segments
-                    text_lines = html_data.get('lines', [])
-                    
-                    if text_lines:
-                        font_size = label.get('fontSize', 12)
-                        padding = 8
-                        line_height = font_size + 3
+                    # Check if it's a table
+                    if html_data.get('is_table', False):
+                        # Draw HTML table as SVG
+                        padding = 6
+                        table_x = geom['x'] + padding
+                        table_y = geom['y'] + padding
+                        table_width = geom['width'] - 2 * padding
+                        table_height = geom['height'] - 2 * padding
                         
-                        # Calculate total text height needed (number of lines * line_height)
-                        total_text_height = len(text_lines) * line_height - 3
+                        table_svg = draw_html_table_as_svg(
+                            html_data['rows'],
+                            table_x, table_y,
+                            table_width, table_height,
+                            font_size=11,  # Slightly smaller for table
+                            text_color=label.get('textColor', '#000000')
+                            # Uses default: no borders, no background (transparent)
+                        )
+                        svg_lines.extend(table_svg)
+                    else:
+                        # Draw as text lines with potential colored segments
+                        text_lines = html_data.get('lines', [])
                         
-                        # Always center text vertically in the shape
-                        # start_y is positioned so that the text is centered vertically
-                        start_y = geom['y'] + geom['height'] / 2 - total_text_height / 2 + font_size / 2
-                        
-                        # Position X based on alignment
-                        if text_anchor == 'start':
-                            label_x = geom['x'] + padding
-                        elif text_anchor == 'end':
-                            label_x = geom['x'] + geom['width'] - padding
-                        else:
-                            label_x = geom['x'] + geom['width'] / 2
-                        
-                        # Draw each line of text (each line may have multiple colored segments)
-                        for i, line_segments in enumerate(text_lines[:10]):  # Limit to 10 lines max
-                            current_y = start_y + (i * line_height)
+                        if text_lines:
+                            font_size = label.get('fontSize', 12)
+                            padding = 8
+                            line_height = font_size + 3
                             
-                            # Check if line_segments is a list of segments or a single segment dict
-                            if not isinstance(line_segments, list):
-                                # Single segment (old format compatibility)
-                                line_segments = [line_segments]
+                            # Calculate total text height needed (number of lines * line_height)
+                            total_text_height = len(text_lines) * line_height - 3
                             
-                            # Build text element with tspan for each segment
-                            text_attrs = f'font-family="{font_family}" font-size="{font_size}" font-style="{font_style}" font-weight="{font_weight}" text-anchor="{text_anchor}" dominant-baseline="middle" stroke="none"'
+                            # Always center text vertically in the shape
+                            # start_y is positioned so that the text is centered vertically
+                            start_y = geom['y'] + geom['height'] / 2 - total_text_height / 2 + font_size / 2
                             
-                            svg_lines.append('      <text x="{}" y="{}" {}>'.format(
-                                label_x, current_y, text_attrs
-                            ))
+                            # Position X based on alignment
+                            if text_anchor == 'start':
+                                label_x = geom['x'] + padding
+                            elif text_anchor == 'end':
+                                label_x = geom['x'] + geom['width'] - padding
+                            else:
+                                label_x = geom['x'] + geom['width'] / 2
                             
-                            # Render each segment (may have different colors)
-                            for segment in line_segments:
-                                if isinstance(segment, dict):
-                                    text_content = segment.get('text', '')
-                                    color = segment.get('color')  # Color from <font color="...">
-                                    is_bold = segment.get('is_bold', False)
-                                    is_italic = segment.get('is_italic', False)
-                                else:
-                                    # Fallback for string segments
-                                    text_content = str(segment)
-                                    color = None
-                                    is_bold = False
-                                    is_italic = False
+                            # Draw each line of text (each line may have multiple colored segments)
+                            for i, line_segments in enumerate(text_lines[:10]):  # Limit to 10 lines max
+                                current_y = start_y + (i * line_height)
                                 
-                                # If there's a color or styling, use tspan
-                                if color or is_bold or is_italic:
-                                    tspan_style = ''
-                                    if color:
-                                        tspan_style += f' fill="{color}"'
-                                    if is_bold:
-                                        tspan_style += ' font-weight="bold"'
-                                    if is_italic:
-                                        tspan_style += ' font-style="italic"'
-                                    
-                                    svg_lines.append(f'        <tspan{tspan_style}>{text_content}</tspan>')
-                                else:
-                                    # Default color and styling
-                                    tspan_style = f' fill="{label.get("textColor", "#000000")}"'
-                                    svg_lines.append(f'        <tspan{tspan_style}>{text_content}</tspan>')
+                                # Check if line_segments is a list of segments or a single segment dict
+                                if not isinstance(line_segments, list):
+                                    # Single segment (old format compatibility)
+                                    line_segments = [line_segments]
+                                
+                                # Build text element with tspan for each segment
+                                text_attrs = f'font-family="{font_family}" font-size="{font_size}" font-style="{font_style}" font-weight="{font_weight}" text-anchor="{text_anchor}" dominant-baseline="middle" stroke="none"'
+                                
+                                svg_lines.append('      <text x="{}" y="{}" {}>'.format(
+                                    label_x, current_y, text_attrs
+                                ))
                             
-                            svg_lines.append('      </text>')
-            else:
-                # Simple text label (centered in shape)
-                text_attrs = f'font-family="{font_family}" font-size="{font_size}" font-style="{font_style}" font-weight="{font_weight}" fill="{label.get("textColor", "#000000")}" text-anchor="{text_anchor}" dominant-baseline="middle" stroke="none"'
-                
-                # Position text in center of shape
-                label_x = geom['x'] + geom['width'] / 2
-                label_y = geom['y'] + geom['height'] / 2
-                
-                svg_lines.append('      <text x="{}" y="{}" {}>'.format(
-                    label_x, label_y, text_attrs
-                ))
-                svg_lines.append(label['text'])
-                svg_lines.append('      </text>')
+                                if not isinstance(line_segments, list):
+                                    # Single segment (old format compatibility)
+                                    line_segments = [line_segments]
+                                
+                                # Build text element with tspan for each segment
+                                text_attrs = f'font-family="{font_family}" font-size="{font_size}" font-style="{font_style}" font-weight="{font_weight}" text-anchor="{text_anchor}" dominant-baseline="middle" stroke="none"'
+                                
+                                svg_lines.append('      <text x="{}" y="{}" {}>'.format(
+                                    label_x, current_y, text_attrs
+                                ))
+                                
+                                # Render each segment (may have different colors)
+                                for segment in line_segments:
+                                    if isinstance(segment, dict):
+                                        text_content = segment.get('text', '')
+                                        color = segment.get('color')  # Color from <font color="...">
+                                        is_bold = segment.get('is_bold', False)
+                                        is_italic = segment.get('is_italic', False)
+                                    else:
+                                        # Fallback for string segments
+                                        text_content = str(segment)
+                                        color = None
+                                        is_bold = False
+                                        is_italic = False
+                                    
+                                    # If there's a color or styling, use tspan
+                                    if color or is_bold or is_italic:
+                                        tspan_style = ''
+                                        if color:
+                                            tspan_style += f' fill="{color}"'
+                                        if is_bold:
+                                            tspan_style += ' font-weight="bold"'
+                                        if is_italic:
+                                            tspan_style += ' font-style="italic"'
+                                        
+                                        svg_lines.append(f'        <tspan{tspan_style}>{text_content}</tspan>')
+                                    else:
+                                        # Default color and styling
+                                        tspan_style = f' fill="{label.get("textColor", "#000000")}"'
+                                        svg_lines.append(f'        <tspan{tspan_style}>{text_content}</tspan>')
+                                
+                                svg_lines.append('      </text>')
+                else:
+                    # Simple text label - use relative coordinates from GraphML
+                    text_attrs = f'font-family="{font_family}" font-size="{font_size}" font-style="{font_style}" font-weight="{font_weight}" fill="{label.get("textColor", "#000000")}" text-anchor="{text_anchor}" dominant-baseline="middle" stroke="none"'
+                    
+                    # Position text using label coordinates (relative to shape geometry)
+                    # If x,y are 0 (or not provided), center the label in the shape
+                    label_rel_x = label.get('x', 0)
+                    label_rel_y = label.get('y', 0)
+                    
+                    # Calculate absolute position
+                    if label_rel_x == 0 and label_rel_y == 0:
+                        # No explicit position: center in shape (default behavior)
+                        label_x = geom['x'] + geom['width'] / 2
+                        label_y = geom['y'] + geom['height'] / 2
+                    else:
+                        # Use relative coordinates from GraphML
+                        label_x = geom['x'] + label_rel_x
+                        label_y = geom['y'] + label_rel_y
+                    
+                    svg_lines.append('      <text x="{}" y="{}" {}>'.format(
+                        label_x, label_y, text_attrs
+                    ))
+                    svg_lines.append(label['text'])
+                    svg_lines.append('      </text>')
         
         svg_lines.append('    </g>')
     
@@ -1796,11 +1890,21 @@ def build_svg_structure(graphml_data: Dict[str, Any]) -> str:
     # Create a mapping of node IDs to their geometry
     node_map = {}
     node_svg_bounds = {}
+    
+    # Include regular nodes (SVGNode type)
     for node in nodes:
         if 'geometry' in node:
             node_map[node['id']] = node['geometry']
             if 'svg_bounds' in node:
                 node_svg_bounds[node['id']] = node['svg_bounds']
+    
+    # BUGFIX: Also include shape_nodes (ShapeNode type) in node_map
+    # This ensures that nodes from groups (which are ShapeNodes) can be referenced by edges
+    for shape_node in shape_nodes:
+        if 'geometry' in shape_node:
+            node_map[shape_node['id']] = shape_node['geometry']
+            if 'svg_bounds' in shape_node:
+                node_svg_bounds[shape_node['id']] = shape_node['svg_bounds']
     
     # Create a mapping of group IDs to their geometry
     group_map = {}
@@ -2084,7 +2188,7 @@ def convert(input_path: str, output_path: str) -> str:
         traceback.print_exc()
         raise Exception(f"Error converting GraphML to SVG: {str(e)}") from e
 
-# Test: Verify parsing works
+# Test: Verify convert works
 if __name__ == '__main__':
     # Auto-convert test files
     output_file = convert('./graphml/simple.graphml', './target/simple.svg')
@@ -2095,5 +2199,8 @@ if __name__ == '__main__':
 
     output_file = convert('./graphml/simple2.graphml', './target/simple2.svg')
     print(f"[OK] Successfully converted simple2.graphml to {output_file}")
+
+    output_file = convert('./graphml/simple3.graphml', './target/simple3.svg')
+    print(f"[OK] Successfully converted simple3.graphml to {output_file}")
 
 
