@@ -1741,6 +1741,7 @@ def draw_node_labels(nodes: List[Dict[str, Any]], bg_x: float, bg_y: float) -> L
     Draw text labels for nodes positioned below them.
     Supports both plain text and HTML labels.
     Handles line breaks in labels.
+    Supports multiple labels per node (SVGNode with multiple NodeLabels).
     
     Args:
         nodes: List of node dictionaries
@@ -1752,87 +1753,130 @@ def draw_node_labels(nodes: List[Dict[str, Any]], bg_x: float, bg_y: float) -> L
     svg_lines = []
     
     for node in nodes:
-        if 'geometry' not in node or 'label' not in node:
+        if 'geometry' not in node:
             continue
         
         geom = node['geometry']
-        label = node['label']
-        label_text = label.get('text', '')
         
-        # Map font family
-        font_family = map_font_family(label.get('fontFamily', 'Dialog'))
+        # Check if node has multiple labels or single label
+        labels_to_draw = []
+        if 'labels' in node:
+            # SVGNode with multiple labels
+            labels_to_draw = node['labels']
+        elif 'label' in node:
+            # Single label (backward compatibility or ShapeNode)
+            labels_to_draw = [node['label']]
         
-        # Position for label (world coordinates - will be transformed by parent group)
-        # Center horizontally on the node
-        label_x = geom['x'] + geom['width'] / 2
-        # Position vertically below the node
-        label_y = geom['y'] + geom['height'] + label.get('fontSize', 12) + 4
+        if not labels_to_draw:
+            continue
         
-        # Determine stroke attribute
-        has_line_color = label.get('hasLineColor', False)
-        stroke_attr = 'stroke="{}"{}'.format(
-            label.get('textColor', '#000000'),
-            ''
-        ) if has_line_color else 'stroke="none"'
-        
-        # Check if label contains HTML
-        if label_text.startswith('<'):
-            # Parse HTML content
-            html_data = parse_html_label(label_text)
+        # Draw each label
+        for label in labels_to_draw:
+            label_text = label.get('text', '')
+            if not label_text:
+                continue
             
-            # Check if it's a table
-            if html_data.get('is_table', False):
-                # Draw HTML table as SVG
-                padding = 6
-                table_x = label_x - geom['width'] / 2 + padding
-                table_y = label_y - label.get('fontSize', 12)
-                table_width = geom['width'] - 2 * padding
-                table_height = geom['height'] - 2 * padding
-                
-                table_svg = draw_html_table_as_svg(
-                    html_data['rows'],
-                    table_x, table_y,
-                    table_width, table_height,
-                    font_size=label.get('fontSize', 12),
-                    text_color=label.get('textColor', '#000000')
-                )
-                svg_lines.extend(table_svg)
+            # Map font family
+            font_family = map_font_family(label.get('fontFamily', 'Dialog'))
+            
+            # Determine text anchor based on alignment
+            alignment = label.get('alignment', 'center')
+            if alignment == 'left':
+                text_anchor = 'start'
+            elif alignment == 'right':
+                text_anchor = 'end'
             else:
-                # Draw as text lines
-                text_lines = html_data.get('lines', [])
-                if text_lines:
-                    svg_lines.append('    <g text-rendering="geometricPrecision" stroke-miterlimit="10" shape-rendering="geometricPrecision" font-family="{}">'.format(font_family))
-                    line_height = label.get('fontSize', 12) * 1.2
-                    for i, line in enumerate(text_lines):
-                        # Handle case where line is a list of segments or a string
-                        if isinstance(line, list):
-                            # line is a list of segment dicts
-                            line_text = ''.join(segment.get('text', '') for segment in line)
-                        else:
-                            line_text = str(line) if line else ''
-                        
-                        line_y = label_y + i * line_height
-                        svg_lines.append('      <text x="{}" xml:space="preserve" y="{}" text-anchor="middle" {}>{}</text>'.format(
-                            label_x,
-                            line_y,
-                            stroke_attr,
-                            line_text.replace('&', '&amp;').replace('<', '&lt;').replace('>', '&gt;')
-                        ))
-                    svg_lines.append('    </g>')
-        else:
-            # Plain text label - handle line breaks
-            text_lines = label_text.split('\n')
-            svg_lines.append('    <g text-rendering="geometricPrecision" stroke-miterlimit="10" shape-rendering="geometricPrecision" font-family="{}">'.format(font_family))
-            line_height = label.get('fontSize', 12) * 1.2
-            for i, line in enumerate(text_lines):
-                line_y = label_y + i * line_height
-                svg_lines.append('      <text x="{}" xml:space="preserve" y="{}" text-anchor="middle" {}>{}</text>'.format(
-                    label_x, 
-                    line_y,
-                    stroke_attr,
-                    line.replace('&', '&amp;').replace('<', '&lt;').replace('>', '&gt;')
-                ))
-            svg_lines.append('    </g>')
+                text_anchor = 'middle'
+            
+            # Determine positioning based on modelName
+            model_name = label.get('modelName', 'internal')
+            model_position = label.get('modelPosition', 'c')
+            
+            if model_name == 'sandwich' and model_position == 's':
+                # Old-style "sandwich" labels positioned below node (backward compatibility)
+                # Center horizontally on the node
+                label_x = geom['x'] + geom['width'] / 2
+                # Position vertically below the node
+                label_y = geom['y'] + geom['height'] + label.get('fontSize', 12) + 4
+            else:
+                # Custom positioned labels using GraphML coordinates
+                # Get label position from attributes (world coordinates within node)
+                label_local_x = label.get('x', 0)
+                label_local_y = label.get('y', 0)
+                label_local_width = label.get('width', geom['width'])
+                
+                # Convert to world coordinates
+                # The label position is relative to the node's top-left corner
+                label_x = geom['x'] + label_local_x + label_local_width / 2 if alignment == 'center' else geom['x'] + label_local_x
+                label_y = geom['y'] + label_local_y
+            
+            # Determine stroke attribute
+            has_line_color = label.get('hasLineColor', False)
+            stroke_attr = 'stroke="{}"{}'.format(
+                label.get('textColor', '#000000'),
+                ''
+            ) if has_line_color else 'stroke="none"'
+            
+            # Check if label contains HTML
+            if label_text.startswith('<'):
+                # Parse HTML content
+                html_data = parse_html_label(label_text)
+                
+                # Check if it's a table
+                if html_data.get('is_table', False):
+                    # Draw HTML table as SVG
+                    padding = 6
+                    table_x = label_x - geom['width'] / 2 + padding
+                    table_y = label_y - label.get('fontSize', 12)
+                    table_width = geom['width'] - 2 * padding
+                    table_height = geom['height'] - 2 * padding
+                    
+                    table_svg = draw_html_table_as_svg(
+                        html_data['rows'],
+                        table_x, table_y,
+                        table_width, table_height,
+                        font_size=label.get('fontSize', 12),
+                        text_color=label.get('textColor', '#000000')
+                    )
+                    svg_lines.extend(table_svg)
+                else:
+                    # Draw as text lines
+                    text_lines = html_data.get('lines', [])
+                    if text_lines:
+                        svg_lines.append('    <g text-rendering="geometricPrecision" stroke-miterlimit="10" shape-rendering="geometricPrecision" font-family="{}">'.format(font_family))
+                        line_height = label.get('fontSize', 12) * 1.2
+                        for i, line in enumerate(text_lines):
+                            # Handle case where line is a list of segments or a string
+                            if isinstance(line, list):
+                                # line is a list of segment dicts
+                                line_text = ''.join(segment.get('text', '') for segment in line)
+                            else:
+                                line_text = str(line) if line else ''
+                            
+                            line_y = label_y + i * line_height
+                            svg_lines.append('      <text x="{}" xml:space="preserve" y="{}" text-anchor="{}" {}>{}</text>'.format(
+                                label_x,
+                                line_y,
+                                text_anchor,
+                                stroke_attr,
+                                line_text.replace('&', '&amp;').replace('<', '&lt;').replace('>', '&gt;')
+                            ))
+                        svg_lines.append('    </g>')
+            else:
+                # Plain text label - handle line breaks
+                text_lines = label_text.split('\n')
+                svg_lines.append('    <g text-rendering="geometricPrecision" stroke-miterlimit="10" shape-rendering="geometricPrecision" font-family="{}">'.format(font_family))
+                line_height = label.get('fontSize', 12) * 1.2
+                for i, line in enumerate(text_lines):
+                    line_y = label_y + i * line_height
+                    svg_lines.append('      <text x="{}" xml:space="preserve" y="{}" text-anchor="{}" {}>{}</text>'.format(
+                        label_x, 
+                        line_y,
+                        text_anchor,
+                        stroke_attr,
+                        line.replace('&', '&amp;').replace('<', '&lt;').replace('>', '&gt;')
+                    ))
+                svg_lines.append('    </g>')
     
     return svg_lines
 

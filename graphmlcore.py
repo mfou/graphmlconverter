@@ -660,22 +660,40 @@ def parse_graphml(input_path: str) -> Dict[str, Any]:
                     'height': float(geom.get('height', 0))
                 }
             
-            # Extract labels
-            label_elem = svg_node.find('.//y:NodeLabel', NAMESPACES)
-            if label_elem is not None:
-                node_data['label'] = {
-                    'text': label_elem.text or '',
-                    'x': float(label_elem.get('x', 0)),
-                    'y': float(label_elem.get('y', 0)),
-                    'width': float(label_elem.get('width', 0)),
-                    'height': float(label_elem.get('height', 0)),
-                    'fontSize': float(label_elem.get('fontSize', 12)),
-                    'fontFamily': label_elem.get('fontFamily', 'Dialog'),
-                    'fontStyle': label_elem.get('fontStyle', 'plain'),
-                    'textColor': label_elem.get('textColor', '#000000'),
-                    'backgroundColor': label_elem.get('backgroundColor', '#ffffff'),
-                    'lineColor': label_elem.get('lineColor', '#000000')
-                }
+            # Extract all labels (multiple labels allowed per SVGNode)
+            label_elements = svg_node.findall('.//y:NodeLabel', NAMESPACES)
+            if label_elements:
+                # Store first label as 'label' for backward compatibility
+                # Store all labels as 'labels' for new multi-label support
+                node_data['labels'] = []
+                for label_elem in label_elements:
+                    # Skip labels with hasText="false" (invisible labels)
+                    # Note: hasText attribute defaults to "true" if not specified
+                    if label_elem.get('hasText', 'true') == 'false':
+                        continue
+                    
+                    label_data = {
+                        'text': label_elem.text or '',
+                        'x': float(label_elem.get('x', 0)),
+                        'y': float(label_elem.get('y', 0)),
+                        'width': float(label_elem.get('width', 0)),
+                        'height': float(label_elem.get('height', 0)),
+                        'fontSize': float(label_elem.get('fontSize', 12)),
+                        'fontFamily': label_elem.get('fontFamily', 'Dialog'),
+                        'fontStyle': label_elem.get('fontStyle', 'plain'),
+                        'textColor': label_elem.get('textColor', '#000000'),
+                        'backgroundColor': label_elem.get('backgroundColor', '#ffffff'),
+                        'lineColor': label_elem.get('lineColor', '#000000'),
+                        'alignment': label_elem.get('alignment', 'center'),
+                        'modelName': label_elem.get('modelName', 'internal'),
+                        'modelPosition': label_elem.get('modelPosition', 'c'),
+                        'hasLineColor': label_elem.get('hasLineColor', 'false') == 'true'
+                    }
+                    node_data['labels'].append(label_data)
+                
+                # Keep 'label' for backward compatibility (first label)
+                if node_data['labels']:
+                    node_data['label'] = node_data['labels'][0]
             
             # Extract embedded SVG content (SVGModel with SVGContent refid)
             svg_model = svg_node.find('.//y:SVGModel', NAMESPACES)
