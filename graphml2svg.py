@@ -834,26 +834,31 @@ def draw_shape_nodes(shape_nodes: List[Dict[str, Any]]) -> List[str]:
             # No border: use transparent stroke
             stroke_attrs = f'stroke="none" fill="{final_fill}"'
         
+        # Wrap shape node in a transform group to compensate for parent transform
+        # The parent group has transform="matrix(1,0,0,1,-bg_x,-bg_y)" which shifts everything
+        # We need to counteract this for absolute positioned shape nodes
+        node_x = geom['x']
+        node_y = geom['y']
+        svg_lines.append('    <g transform="matrix(1,0,0,1,{},{})">'.format(node_x, node_y))
         svg_lines.append('    <g text-rendering="geometricPrecision" shape-rendering="geometricPrecision">')
         
         # Draw shape based on type
         if shape_type == 'rectangle3d':
             # Draw a 3D rectangle effect with white highlight on top/left and darker shade on bottom/right
             # Main rectangle without stroke (stroke will be created by 3D lines)
+            # Note: coordinates are now relative to the node's position (we're inside a transform group)
             main_rect_attrs = f'fill="{fill_color}" stroke="none"'
-            svg_lines.append('      <rect x="{}" y="{}" width="{}" height="{}" {}/>'.format(
-                geom['x'], geom['y'], geom['width'], geom['height'],
+            svg_lines.append('      <rect x="0" y="0" width="{}" height="{}" {}/>'.format(
+                geom['width'], geom['height'],
                 main_rect_attrs
             ))
             
             # 3D effect: white/light lines on top and left edges
-            svg_lines.append('      <line x1="{}" y1="{}" x2="{}" y2="{}" stroke="white" stroke-width="1"/>'.format(
-                geom['x'], geom['y'],
-                geom['x'] + geom['width'] - 1, geom['y']
+            svg_lines.append('      <line x1="0" y1="0" x2="{}" y2="0" stroke="white" stroke-width="1"/>'.format(
+                geom['width'] - 1
             ))
-            svg_lines.append('      <line x1="{}" y1="{}" x2="{}" y2="{}" stroke="white" stroke-width="1"/>'.format(
-                geom['x'], geom['y'],
-                geom['x'], geom['y'] + geom['height'] - 1
+            svg_lines.append('      <line x1="0" y1="0" x2="0" y2="{}" stroke="white" stroke-width="1"/>'.format(
+                geom['height'] - 1
             ))
             
             # 3D effect: darker lines on bottom and right edges (darker version of fill color)
@@ -876,28 +881,26 @@ def draw_shape_nodes(shape_nodes: List[Dict[str, Any]]) -> List[str]:
             except:
                 dark_color = '#666666'  # Fallback
             
-            svg_lines.append('      <line x1="{}" y1="{}" x2="{}" y2="{}" stroke="{}" stroke-width="1"/>'.format(
-                geom['x'] + geom['width'] - 1, geom['y'],
-                geom['x'] + geom['width'] - 1, geom['y'] + geom['height'] - 1,
+            svg_lines.append('      <line x1="{}" y1="0" x2="{}" y2="{}" stroke="{}" stroke-width="1"/>'.format(
+                geom['width'] - 1, geom['width'] - 1, geom['height'] - 1,
                 dark_color
             ))
-            svg_lines.append('      <line x1="{}" y1="{}" x2="{}" y2="{}" stroke="{}" stroke-width="1"/>'.format(
-                geom['x'], geom['y'] + geom['height'] - 1,
-                geom['x'] + geom['width'] - 1, geom['y'] + geom['height'] - 1,
+            svg_lines.append('      <line x1="0" y1="{}" x2="{}" y2="{}" stroke="{}" stroke-width="1"/>'.format(
+                geom['height'] - 1, geom['width'] - 1, geom['height'] - 1,
                 dark_color
             ))
         elif shape_type == 'roundrectangle':
             # Draw a rounded rectangle
             corner_radius = min(geom['width'], geom['height']) / 10  # Corner radius 10% of smallest dimension
-            svg_lines.append('      <rect x="{}" y="{}" width="{}" height="{}" rx="{}" ry="{}" {}/>'.format(
-                geom['x'], geom['y'], geom['width'], geom['height'],
+            svg_lines.append('      <rect x="0" y="0" width="{}" height="{}" rx="{}" ry="{}" {}/>'.format(
+                geom['width'], geom['height'],
                 corner_radius, corner_radius,
                 stroke_attrs
             ))
         elif shape_type == 'ellipse' or shape_type == 'circle':
             # Draw an ellipse/circle
-            cx = geom['x'] + geom['width'] / 2
-            cy = geom['y'] + geom['height'] / 2
+            cx = geom['width'] / 2
+            cy = geom['height'] / 2
             rx = geom['width'] / 2
             ry = geom['height'] / 2
             svg_lines.append('      <ellipse cx="{}" cy="{}" rx="{}" ry="{}" {}/>'.format(
@@ -906,16 +909,17 @@ def draw_shape_nodes(shape_nodes: List[Dict[str, Any]]) -> List[str]:
             ))
         elif shape_type == 'diamond':
             # Draw a diamond shape
-            cx = geom['x'] + geom['width'] / 2
-            cy = geom['y'] + geom['height'] / 2
+            # Note: coordinates are now relative to the node's position
+            cx = geom['width'] / 2
+            cy = geom['height'] / 2
             half_width = geom['width'] / 2
             half_height = geom['height'] / 2
             
             points = [
-                (cx, geom['y']),  # top
-                (geom['x'] + geom['width'], cy),  # right
-                (cx, geom['y'] + geom['height']),  # bottom
-                (geom['x'], cy)  # left
+                (cx, 0),  # top
+                (geom['width'], cy),  # right
+                (cx, geom['height']),  # bottom
+                (0, cy)  # left
             ]
             points_str = ' '.join(f'{x},{y}' for x, y in points)
             svg_lines.append('      <polygon points="{}" {}/>'.format(
@@ -924,11 +928,12 @@ def draw_shape_nodes(shape_nodes: List[Dict[str, Any]]) -> List[str]:
             ))
         elif shape_type == 'triangle':
             # Draw a triangle (pointing up)
-            cx = geom['x'] + geom['width'] / 2
+            # Note: coordinates are now relative to the node's position
+            cx = geom['width'] / 2
             points = [
-                (cx, geom['y']),  # top
-                (geom['x'] + geom['width'], geom['y'] + geom['height']),  # bottom right
-                (geom['x'], geom['y'] + geom['height'])  # bottom left
+                (cx, 0),  # top
+                (geom['width'], geom['height']),  # bottom right
+                (0, geom['height'])  # bottom left
             ]
             points_str = ' '.join(f'{x},{y}' for x, y in points)
             svg_lines.append('      <polygon points="{}" {}/>'.format(
@@ -937,8 +942,8 @@ def draw_shape_nodes(shape_nodes: List[Dict[str, Any]]) -> List[str]:
             ))
         else:
             # Default to rectangle for unknown types
-            svg_lines.append('      <rect x="{}" y="{}" width="{}" height="{}" {}/>'.format(
-                geom['x'], geom['y'], geom['width'], geom['height'],
+            svg_lines.append('      <rect x="0" y="0" width="{}" height="{}" {}/>'.format(
+                geom['width'], geom['height'],
                 stroke_attrs
             ))
         
@@ -963,9 +968,10 @@ def draw_shape_nodes(shape_nodes: List[Dict[str, Any]]) -> List[str]:
                     # Check if it's a table
                     if html_data.get('is_table', False):
                         # Draw HTML table as SVG
+                        # Note: coordinates are now relative to the node's position (inside transform group)
                         padding = 6
-                        table_x = geom['x'] + padding
-                        table_y = geom['y'] + padding
+                        table_x = padding
+                        table_y = padding
                         table_width = geom['width'] - 2 * padding
                         table_height = geom['height'] - 2 * padding
                         
@@ -991,16 +997,16 @@ def draw_shape_nodes(shape_nodes: List[Dict[str, Any]]) -> List[str]:
                             total_text_height = len(text_lines) * line_height - 3
                             
                             # Always center text vertically in the shape
-                            # start_y is positioned so that the text is centered vertically
-                            start_y = geom['y'] + geom['height'] / 2 - total_text_height / 2 + font_size / 2
+                            # Note: coordinates are now relative to the node's position (inside transform group)
+                            start_y = geom['height'] / 2 - total_text_height / 2 + font_size / 2
                             
                             # Position X based on alignment
                             if text_anchor == 'start':
-                                label_x = geom['x'] + padding
+                                label_x = padding
                             elif text_anchor == 'end':
-                                label_x = geom['x'] + geom['width'] - padding
+                                label_x = geom['width'] - padding
                             else:
-                                label_x = geom['x'] + geom['width'] / 2
+                                label_x = geom['width'] / 2
                             
                             # Draw each line of text (each line may have multiple colored segments)
                             for i, line_segments in enumerate(text_lines[:10]):  # Limit to 10 lines max
@@ -1065,19 +1071,29 @@ def draw_shape_nodes(shape_nodes: List[Dict[str, Any]]) -> List[str]:
                     text_attrs = f'font-family="{font_family}" font-size="{font_size}" font-style="{font_style}" font-weight="{font_weight}" fill="{label.get("textColor", "#000000")}" text-anchor="{text_anchor}" dominant-baseline="middle" stroke="none"'
                     
                     # Position text using label coordinates (relative to shape geometry)
-                    # If x,y are 0 (or not provided), center the label in the shape
+                    # Note: we're now inside a transform group, so coordinates are relative to the node
                     label_rel_x = label.get('x', 0)
                     label_rel_y = label.get('y', 0)
+                    label_width = label.get('width', geom['width'])
+                    label_height = label.get('height', geom['height'])
                     
-                    # Calculate absolute position
+                    # Calculate position (now relative to node, not absolute)
                     if label_rel_x == 0 and label_rel_y == 0:
                         # No explicit position: center in shape (default behavior)
-                        label_x = geom['x'] + geom['width'] / 2
-                        label_y = geom['y'] + geom['height'] / 2
+                        label_x = geom['width'] / 2
+                        label_y = geom['height'] / 2
                     else:
-                        # Use relative coordinates from GraphML
-                        label_x = geom['x'] + label_rel_x
-                        label_y = geom['y'] + label_rel_y
+                        # Adjust for text-anchor alignment (same as in draw_node_labels)
+                        # For SVG with text-anchor, we must position the text anchor point correctly
+                        if text_anchor == 'start':
+                            label_x = label_rel_x
+                        elif text_anchor == 'end':
+                            label_x = label_rel_x + label_width
+                        else:  # middle (default)
+                            label_x = label_rel_x + label_width / 2
+                        
+                        # For Y, use the center of the label box
+                        label_y = label_rel_y + label_height / 2
                     
                     svg_lines.append('      <text x="{}" y="{}" {}>'.format(
                         label_x, label_y, text_attrs
@@ -1085,6 +1101,8 @@ def draw_shape_nodes(shape_nodes: List[Dict[str, Any]]) -> List[str]:
                     svg_lines.append(label['text'])
                     svg_lines.append('      </text>')
         
+        # Close render group and transform group
+        svg_lines.append('    </g>')
         svg_lines.append('    </g>')
     
     return svg_lines
@@ -1770,6 +1788,12 @@ def draw_node_labels(nodes: List[Dict[str, Any]], bg_x: float, bg_y: float) -> L
         if not labels_to_draw:
             continue
         
+        # Wrap all labels for this node in a group with the node's transform
+        # This compensates for the parent group's transform that shifts everything by (-bg_x, -bg_y)
+        node_x = geom['x']
+        node_y = geom['y']
+        svg_lines.append('    <g transform="matrix(1,0,0,1,{},{})">'.format(node_x, node_y))
+        
         # Draw each label
         for label in labels_to_draw:
             label_text = label.get('text', '')
@@ -1794,21 +1818,39 @@ def draw_node_labels(nodes: List[Dict[str, Any]], bg_x: float, bg_y: float) -> L
             
             if model_name == 'sandwich' and model_position == 's':
                 # Old-style "sandwich" labels positioned below node (backward compatibility)
-                # Center horizontally on the node
-                label_x = geom['x'] + geom['width'] / 2
+                # Center horizontally on the node (relative coordinates since we're in node's group)
+                label_x = geom['width'] / 2
                 # Position vertically below the node
-                label_y = geom['y'] + geom['height'] + label.get('fontSize', 12) + 4
+                label_y = geom['height'] + label.get('fontSize', 12) + 4
             else:
                 # Custom positioned labels using GraphML coordinates
-                # Get label position from attributes (world coordinates within node)
+                # Get label position from attributes (relative to node's top-left corner)
                 label_local_x = label.get('x', 0)
                 label_local_y = label.get('y', 0)
                 label_local_width = label.get('width', geom['width'])
+                label_local_height = label.get('height', geom['height'])
                 
-                # Convert to world coordinates
-                # The label position is relative to the node's top-left corner
-                label_x = geom['x'] + label_local_x + label_local_width / 2 if alignment == 'center' else geom['x'] + label_local_x
-                label_y = geom['y'] + label_local_y
+                # Convert to local coordinates (relative to node, since we're in the node's transform group)
+                # NOTE: For SVG with text-anchor, the label position should be where the text ANCHOR is placed
+                # yEd's label coordinates are relative to node's top-left, so we use them directly
+                # But we must adjust for text-anchor alignment:
+                # - text-anchor="start" (left align): place at label_x
+                # - text-anchor="middle" (center align): place at label_x + label_width/2  
+                # - text-anchor="end" (right align): place at label_x + label_width
+                
+                # For y-axis: SVG uses dominant-baseline which affects vertical positioning
+                # GraphML label y is the top of the label box, SVG typically uses baseline
+                # We adjust by using label_y + label_height/2 to approximate centering
+                
+                if text_anchor == 'start':
+                    label_x = label_local_x
+                elif text_anchor == 'end':
+                    label_x = label_local_x + label_local_width
+                else:  # middle (default)
+                    label_x = label_local_x + label_local_width / 2
+                
+                # For Y, use the center of the label box for better vertical alignment
+                label_y = label_local_y + label_local_height / 2
             
             # Determine stroke attribute
             has_line_color = label.get('hasLineColor', False)
@@ -1877,6 +1919,9 @@ def draw_node_labels(nodes: List[Dict[str, Any]], bg_x: float, bg_y: float) -> L
                         line.replace('&', '&amp;').replace('<', '&lt;').replace('>', '&gt;')
                     ))
                 svg_lines.append('    </g>')
+        
+        # Close the node's transform group
+        svg_lines.append('    </g>')
     
     return svg_lines
 
