@@ -2277,19 +2277,90 @@ def convert(input_path: str, output_path: str) -> str:
         traceback.print_exc()
         raise Exception(f"Error converting GraphML to SVG: {str(e)}") from e
 
-# Test: Verify convert works
 if __name__ == '__main__':
-    # Auto-convert test files
-    output_file = convert('./graphml/simple.graphml', './target/simple.svg')
-    print(f"[OK] Successfully converted simple.graphml to {output_file}")
-
-    output_file = convert('./graphml/simple1.graphml', './target/simple1.svg')
-    print(f"[OK] Successfully converted simple1.graphml to {output_file}")
-
-    output_file = convert('./graphml/simple2.graphml', './target/simple2.svg')
-    print(f"[OK] Successfully converted simple2.graphml to {output_file}")
-
-    output_file = convert('./graphml/simple3.graphml', './target/simple3.svg')
-    print(f"[OK] Successfully converted simple3.graphml to {output_file}")
+    import sys
+    import argparse
+    import os
+    
+    # Create argument parser
+    parser = argparse.ArgumentParser(
+        description='Convert GraphML file to SVG format',
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+        epilog='''
+Examples:
+  python graphml2svg.py input.graphml output.svg
+  python graphml2svg.py ./graphml/simple.graphml ./target/simple.svg
+        '''
+    )
+    
+    parser.add_argument(
+        'input',
+        metavar='INPUT',
+        help='Path to the input GraphML file'
+    )
+    
+    parser.add_argument(
+        'output',
+        metavar='OUTPUT',
+        help='Path for the output SVG file'
+    )
+    
+    parser.add_argument(
+        '-v', '--verbose',
+        action='store_true',
+        help='Enable verbose output'
+    )
+    
+    # Parse arguments
+    args = parser.parse_args()
+    
+    input_file = args.input
+    output_file = args.output
+    
+    # Validate input file exists
+    if not os.path.isfile(input_file):
+        print(f"[ERROR] Input file not found: {input_file}", file=sys.stderr)
+        sys.exit(1)
+    
+    # Validate input file extension
+    if not input_file.lower().endswith('.graphml'):
+        print(f"[WARNING] Input file does not have .graphml extension: {input_file}", file=sys.stderr)
+    
+    # Create output directory if it doesn't exist
+    output_dir = os.path.dirname(output_file)
+    if output_dir and not os.path.exists(output_dir):
+        try:
+            os.makedirs(output_dir, exist_ok=True)
+            if args.verbose:
+                print(f"[INFO] Created output directory: {output_dir}")
+        except Exception as e:
+            print(f"[ERROR] Failed to create output directory: {e}", file=sys.stderr)
+            sys.exit(1)
+    
+    # Convert GraphML to SVG
+    try:
+        if args.verbose:
+            print(f"[INFO] Converting: {input_file} → {output_file}")
+        
+        result = convert(input_file, output_file)
+        
+        # Get file size for confirmation
+        file_size = os.path.getsize(result)
+        print(f"[OK] Successfully converted to: {result} ({file_size} bytes)")
+        
+        if args.verbose:
+            print(f"[INFO] Conversion completed successfully")
+        
+        sys.exit(0)
+        
+    except FileNotFoundError as e:
+        print(f"[ERROR] {str(e)}", file=sys.stderr)
+        sys.exit(1)
+    except Exception as e:
+        print(f"[ERROR] Conversion failed: {str(e)}", file=sys.stderr)
+        if args.verbose:
+            import traceback
+            traceback.print_exc()
+        sys.exit(1)
 
 
