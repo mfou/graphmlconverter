@@ -2284,11 +2284,9 @@ if __name__ == '__main__':
     import argparse
     import os
 
-    DEBUG_MODE = True
+    DEBUG_MODE = False
 
     if DEBUG_MODE:
-        result = convert("./graphml/naogeo-production.graphml", "./target/naogeo-production.svg")
-        print(f"[OK] Successfully converted to: {result}")
         result = convert("./graphml/simple3.graphml", "./target/simple3.svg")
         print(f"[OK] Successfully converted to: {result}")
         result = convert("./graphml/simple2.graphml", "./target/simple2.svg")
