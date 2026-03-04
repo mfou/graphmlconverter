@@ -619,7 +619,8 @@ def draw_group_nodes(groups: List[Dict[str, Any]], bg_x: float, bg_y: float) -> 
                 svg_lines.append('      <text x="{}" y="{}" {}>'.format(
                     label_x, label_y, text_attrs
                 ))
-                svg_lines.append(label['text'])
+                # escape any special characters in the text content
+                svg_lines.append(html.escape(str(label.get('text', ''))))
                 svg_lines.append('      </text>')
         
         svg_lines.append('    </g>')
@@ -762,12 +763,12 @@ def draw_html_table_as_svg(rows: List[List[Dict]], x: float, y: float, max_width
                             tspan_attrs += ' font-style="italic"'
                         
                         if tspan_attrs:
-                            svg_lines.append(f'        <tspan{tspan_attrs}>{seg_text}</tspan>')
+                            svg_lines.append(f'        <tspan{tspan_attrs}>{html.escape(seg_text)}</tspan>')
                         else:
-                            svg_lines.append(f'        <tspan>{seg_text}</tspan>')
+                            svg_lines.append(f'        <tspan>{html.escape(seg_text)}</tspan>')
                     else:
                         # String segment (fallback)
-                        svg_lines.append(f'        <tspan>{str(segment)}</tspan>')
+                        svg_lines.append(f'        <tspan>{html.escape(str(segment))}</tspan>')
                 
                 svg_lines.append('      </text>')
             else:
@@ -783,7 +784,7 @@ def draw_html_table_as_svg(rows: List[List[Dict]], x: float, y: float, max_width
                     cell_text = cell_text[:max(3, max_chars - 2)] + '..'
                 
                 svg_lines.append('      <text x="{}" y="{}" {}>{}</text>'.format(
-                    text_x, text_y, text_attrs, cell_text
+                    text_x, text_y, text_attrs, html.escape(cell_text)
                 ))
             
             current_x += cell_width
@@ -1023,17 +1024,6 @@ def draw_shape_nodes(shape_nodes: List[Dict[str, Any]]) -> List[str]:
                                 svg_lines.append('      <text x="{}" y="{}" {}>'.format(
                                     label_x, current_y, text_attrs
                                 ))
-                            
-                                if not isinstance(line_segments, list):
-                                    # Single segment (old format compatibility)
-                                    line_segments = [line_segments]
-                                
-                                # Build text element with tspan for each segment
-                                text_attrs = f'font-family="{font_family}" font-size="{font_size}" font-style="{font_style}" font-weight="{font_weight}" text-anchor="{text_anchor}" dominant-baseline="middle" stroke="none"'
-                                
-                                svg_lines.append('      <text x="{}" y="{}" {}>'.format(
-                                    label_x, current_y, text_attrs
-                                ))
                                 
                                 # Render each segment (may have different colors)
                                 for segment in line_segments:
@@ -1059,11 +1049,11 @@ def draw_shape_nodes(shape_nodes: List[Dict[str, Any]]) -> List[str]:
                                         if is_italic:
                                             tspan_style += ' font-style="italic"'
                                         
-                                        svg_lines.append(f'        <tspan{tspan_style}>{text_content}</tspan>')
+                                        svg_lines.append(f'        <tspan{tspan_style}>{html.escape(text_content)}</tspan>')
                                     else:
                                         # Default color and styling
                                         tspan_style = f' fill="{label.get("textColor", "#000000")}"'
-                                        svg_lines.append(f'        <tspan{tspan_style}>{text_content}</tspan>')
+                                        svg_lines.append(f'        <tspan{tspan_style}>{html.escape(text_content)}</tspan>')
                                 
                                 svg_lines.append('      </text>')
                 else:
@@ -1098,7 +1088,7 @@ def draw_shape_nodes(shape_nodes: List[Dict[str, Any]]) -> List[str]:
                     svg_lines.append('      <text x="{}" y="{}" {}>'.format(
                         label_x, label_y, text_attrs
                     ))
-                    svg_lines.append(label['text'])
+                    svg_lines.append(html.escape(str(label.get('text', ''))))
                     svg_lines.append('      </text>')
         
         # Close render group and transform group
@@ -1515,7 +1505,8 @@ def draw_edge_label_text(label: Dict[str, Any], x: float, y: float, width: float
         label_text = '\n'.join(str(item) for item in label_text)
     elif not isinstance(label_text, str):
         label_text = str(label_text) if label_text else ''
-    
+    # escape entire text now (safe even if it contains newlines)
+    label_text = html.escape(label_text)
     text_lines = label_text.split('\n')
     
     if len(text_lines) == 1:
@@ -1524,7 +1515,7 @@ def draw_edge_label_text(label: Dict[str, Any], x: float, y: float, width: float
             label_x_text,
             label_y_text,
             text_attrs,
-            label_text
+            html.escape(label_text)
         ))
     else:
         # Multi-line with tspan
@@ -1540,12 +1531,12 @@ def draw_edge_label_text(label: Dict[str, Any], x: float, y: float, width: float
         
         for line_idx, line in enumerate(text_lines):
             if line_idx == 0:
-                lines.append(line)
+                lines.append(html.escape(line))
             else:
                 lines.append('        <tspan x="{}" dy="{}">{}</tspan>'.format(
                     label_x_text,
                     line_height,
-                    line
+                    html.escape(line)
                 ))
         
         lines.append('      </text>')
@@ -1746,8 +1737,15 @@ def draw_nodes(nodes: List[Dict[str, Any]], node_clip_paths: Dict[str, str] = No
         svg_lines.append('    <g text-rendering="geometricPrecision" shape-rendering="geometricPrecision" transform="matrix(1,0,0,1,{},{})">'.format(translate_x, translate_y))
         svg_lines.append('      <g clip-path="url(#{})">'.format(clip_path_id))
         
+        # Wrap embedded SVG content in a container group to isolate any structural issues
+        # This prevents unbalanced <g> tags from breaking the overall SVG structure
+        svg_lines.append('        <g>')
+        
         # Insert embedded SVG content
         svg_lines.append(svg_content)
+        
+        # Close the content wrapper group
+        svg_lines.append('        </g>')
         
         svg_lines.append('      </g>')
         svg_lines.append('    </g>')
@@ -2153,6 +2151,7 @@ def build_svg_structure(graphml_data: Dict[str, Any]) -> str:
     
     # Start building SVG
     svg_lines = [
+        '<?xml version="1.0" encoding="UTF-8"?>',
         '<svg xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" fill-opacity="1" color-rendering="auto" color-interpolation="auto" text-rendering="auto" stroke="black" stroke-linecap="square" width="{}" stroke-miterlimit="10" shape-rendering="auto" stroke-opacity="1" fill="black" stroke-dasharray="none" font-weight="normal" stroke-width="1" height="{}" font-family="\'Dialog\'" font-style="normal" stroke-linejoin="miter" font-size="12px" stroke-dashoffset="0" image-rendering="auto">'.format(width, height),
         '  <defs id="genericDefs">',
         '    <clipPath id="clipPath3">',
@@ -2217,16 +2216,19 @@ def build_svg_structure(graphml_data: Dict[str, Any]) -> str:
     svg_lines.extend(draw_nodes(nodes, node_clip_paths))
     
     # Draw node labels before edge labels
+    # BUGFIX: Include only regular nodes (not shape_nodes) because shape_nodes are already drawn with labels in draw_shape_nodes
     svg_lines.extend(draw_node_labels(nodes, bg_x_int, bg_y_int))
     
     # Draw edge labels INSIDE the transform group (so they get the same transformation as other elements)
     svg_lines.extend(draw_edges_labels(edges, node_map, bg_x_int, bg_y_int, groups, graphml_data))
     
-    # Close main content group
+    # Close main content group (transform group for world coordinates)
     svg_lines.append('    </g>')
     
-    # Close SVG
+    # Close main SVG group
     svg_lines.append('  </g>')
+    
+    # Close SVG
     svg_lines.append('</svg>')
     
     return '\n'.join(svg_lines)
@@ -2281,86 +2283,98 @@ if __name__ == '__main__':
     import sys
     import argparse
     import os
-    
-    # Create argument parser
-    parser = argparse.ArgumentParser(
-        description='Convert GraphML file to SVG format',
-        formatter_class=argparse.RawDescriptionHelpFormatter,
-        epilog='''
-Examples:
-  python graphml2svg.py input.graphml output.svg
-  python graphml2svg.py ./graphml/simple.graphml ./target/simple.svg
-        '''
-    )
-    
-    parser.add_argument(
-        'input',
-        metavar='INPUT',
-        help='Path to the input GraphML file'
-    )
-    
-    parser.add_argument(
-        'output',
-        metavar='OUTPUT',
-        help='Path for the output SVG file'
-    )
-    
-    parser.add_argument(
-        '-v', '--verbose',
-        action='store_true',
-        help='Enable verbose output'
-    )
-    
-    # Parse arguments
-    args = parser.parse_args()
-    
-    input_file = args.input
-    output_file = args.output
-    
-    # Validate input file exists
-    if not os.path.isfile(input_file):
-        print(f"[ERROR] Input file not found: {input_file}", file=sys.stderr)
-        sys.exit(1)
-    
-    # Validate input file extension
-    if not input_file.lower().endswith('.graphml'):
-        print(f"[WARNING] Input file does not have .graphml extension: {input_file}", file=sys.stderr)
-    
-    # Create output directory if it doesn't exist
-    output_dir = os.path.dirname(output_file)
-    if output_dir and not os.path.exists(output_dir):
-        try:
-            os.makedirs(output_dir, exist_ok=True)
-            if args.verbose:
-                print(f"[INFO] Created output directory: {output_dir}")
-        except Exception as e:
-            print(f"[ERROR] Failed to create output directory: {e}", file=sys.stderr)
+
+    DEBUG_MODE = True
+
+    if DEBUG_MODE:
+        result = convert("./graphml/naogeo-production.graphml", "./target/naogeo-production.svg")
+        print(f"[OK] Successfully converted to: {result}")
+        result = convert("./graphml/simple3.graphml", "./target/simple3.svg")
+        print(f"[OK] Successfully converted to: {result}")
+        result = convert("./graphml/simple2.graphml", "./target/simple2.svg")
+        print(f"[OK] Successfully converted to: {result}")
+        result = convert("./graphml/simple1.graphml", "./target/simple1.svg")
+        print(f"[OK] Successfully converted to: {result}")
+    else:
+        # Create argument parser
+        parser = argparse.ArgumentParser(
+            description='Convert GraphML file to SVG format',
+            formatter_class=argparse.RawDescriptionHelpFormatter,
+            epilog='''
+            Examples:
+            python graphml2svg.py input.graphml output.svg
+            python graphml2svg.py ./graphml/simple.graphml ./target/simple.svg
+            '''
+        )
+        
+        parser.add_argument(
+            'input',
+            metavar='INPUT',
+            help='Path to the input GraphML file'
+        )
+        
+        parser.add_argument(
+            'output',
+            metavar='OUTPUT',
+            help='Path for the output SVG file'
+        )
+        
+        parser.add_argument(
+            '-v', '--verbose',
+            action='store_true',
+            help='Enable verbose output'
+        )
+        
+        # Parse arguments
+        args = parser.parse_args()
+        
+        input_file = args.input
+        output_file = args.output
+        
+        # Validate input file exists
+        if not os.path.isfile(input_file):
+            print(f"[ERROR] Input file not found: {input_file}", file=sys.stderr)
             sys.exit(1)
-    
-    # Convert GraphML to SVG
-    try:
-        if args.verbose:
-            print(f"[INFO] Converting: {input_file} → {output_file}")
         
-        result = convert(input_file, output_file)
+        # Validate input file extension
+        if not input_file.lower().endswith('.graphml'):
+            print(f"[WARNING] Input file does not have .graphml extension: {input_file}", file=sys.stderr)
         
-        # Get file size for confirmation
-        file_size = os.path.getsize(result)
-        print(f"[OK] Successfully converted to: {result} ({file_size} bytes)")
+        # Create output directory if it doesn't exist
+        output_dir = os.path.dirname(output_file)
+        if output_dir and not os.path.exists(output_dir):
+            try:
+                os.makedirs(output_dir, exist_ok=True)
+                if args.verbose:
+                    print(f"[INFO] Created output directory: {output_dir}")
+            except Exception as e:
+                print(f"[ERROR] Failed to create output directory: {e}", file=sys.stderr)
+                sys.exit(1)
         
-        if args.verbose:
-            print(f"[INFO] Conversion completed successfully")
-        
-        sys.exit(0)
-        
-    except FileNotFoundError as e:
-        print(f"[ERROR] {str(e)}", file=sys.stderr)
-        sys.exit(1)
-    except Exception as e:
-        print(f"[ERROR] Conversion failed: {str(e)}", file=sys.stderr)
-        if args.verbose:
-            import traceback
-            traceback.print_exc()
-        sys.exit(1)
+        # Convert GraphML to SVG
+        try:
+            if args.verbose:
+                print(f"[INFO] Converting: {input_file} → {output_file}")
+            
+            result = convert(input_file, output_file)
+            
+            # Get file size for confirmation
+            file_size = os.path.getsize(result)
+            print(f"[OK] Successfully converted to: {result} ({file_size} bytes)")
+            
+            if args.verbose:
+                print(f"[INFO] Conversion completed successfully")
+            
+            sys.exit(0)
+            
+        except FileNotFoundError as e:
+            print(f"[ERROR] {str(e)}", file=sys.stderr)
+            sys.exit(1)
+        except Exception as e:
+            print(f"[ERROR] Conversion failed: {str(e)}", file=sys.stderr)
+            if args.verbose:
+                import traceback
+                traceback.print_exc()
+            sys.exit(1)
 
 

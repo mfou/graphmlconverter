@@ -953,23 +953,83 @@ def parse_graphml(input_path: str) -> Dict[str, Any]:
 
 
 def clean_embedded_svg(svg_content: str) -> str:
-    """Clean embedded SVG content by decoding HTML entities and removing XML declarations and comments."""
+    """Clean embedded SVG content by decoding HTML entities and removing unnecessary elements."""
     import html
+    import xml.etree.ElementTree as ET
+    
     # First decode HTML entities (&lt; -> <, &gt; -> >, etc.)
     svg_content = html.unescape(svg_content)
+    
     # Remove XML declarations
     svg_content = re.sub(r'<\?xml[^?]*\?>', '', svg_content)
+    
     # Remove HTML/XML comments (handle multiline)
     svg_content = re.sub(r'<!--.*?-->', '', svg_content, flags=re.DOTALL)
-    # CRITICAL: Remove all <clipPath> elements (the entire clipPath definition block)
-    # This prevents the embedded SVG's internal clipPath from interfering with our clipping
-    # We use a non-greedy match to correctly handle multiple clipPath elements
+    
+    # Try to parse and extract content properly
+    try:
+        # Add a wrapper SVG if needed to ensure valid XML
+        test_content = svg_content.strip()
+        if not test_content.startswith('<svg'):
+            # Already has no outer svg, just clean it
+            svg_to_parse = f'<svg xmlns="http://www.w3.org/2000/svg">{test_content}</svg>'
+        else:
+            svg_to_parse = test_content
+        
+        # Parse to validate structure
+        root = ET.fromstring(svg_to_parse)
+        
+        # Extract all child elements and serialize them back
+        # This ensures we get clean, well-formed content without the outer svg wrapper
+        cleaned_lines = []
+        for child in root:
+            # Serialize each child element
+            child_str = ET.tostring(child, encoding='unicode', method='xml')
+            cleaned_lines.append(child_str)
+        
+        svg_content = '\n'.join(cleaned_lines)
+    except:
+        # Fallback: use regex-based cleaning if parsing fails
+        pass
+    
+    # CRITICAL: Remove the closing </svg> tag if it still exists
+    svg_content = re.sub(r'</svg>\s*$', '', svg_content, flags=re.MULTILINE)
+    
+    # CRITICAL: Remove the opening <svg ...> tag if it still exists
+    svg_content = re.sub(r'<svg[^>]*>', '', svg_content)
+    
+    # CRITICAL: Remove all <defs> sections from embedded SVG
+    svg_content = re.sub(r'<defs[^>]*>.*?</defs>', '', svg_content, flags=re.DOTALL)
+    svg_content = re.sub(r'<defs[^>]*/>', '', svg_content)
+    
+    # CRITICAL: Remove all <metadata> sections from embedded SVG
+    svg_content = re.sub(r'<metadata[^>]*>.*?</metadata>', '', svg_content, flags=re.DOTALL)
+    svg_content = re.sub(r'<metadata[^>]*/>', '', svg_content)
+    
+    # CRITICAL: Remove all <clipPath> elements
     svg_content = re.sub(r'<clipPath[^>]*>.*?</clipPath>', '', svg_content, flags=re.DOTALL)
-    # CRITICAL: Remove all clip-path="url(#...)" attributes from elements
-    # This removes references to the old clipPath definitions
+    
+    # Remove all clip-path="url(#...)" attributes
     svg_content = re.sub(r'\s*clip-path="[^"]*"', '', svg_content)
+    
+    # Remove orphaned RDF/namespace tags
+    svg_content = re.sub(r'<rdf:[^>]*>.*?</rdf:[^>]*>', '', svg_content, flags=re.DOTALL)
+    svg_content = re.sub(r'<cc:[^>]*>.*?</cc:[^>]*>', '', svg_content, flags=re.DOTALL)
+    svg_content = re.sub(r'<dc:[^>]*>.*?</dc:[^>]*>', '', svg_content, flags=re.DOTALL)
+    
+    # Remove sodipodi and inkscape specific elements
+    svg_content = re.sub(r'<sodipodi:[^>]*>.*?</sodipodi:[^>]*>', '', svg_content, flags=re.DOTALL)
+    svg_content = re.sub(r'<sodipodi:[^>]*/>', '', svg_content)
+    svg_content = re.sub(r'<inkscape:[^>]*>.*?</inkscape:[^>]*>', '', svg_content, flags=re.DOTALL)
+    svg_content = re.sub(r'<inkscape:[^>]*/>', '', svg_content)
+    
+    # Remove sodipodi and inkscape attributes from elements
+    svg_content = re.sub(r'\s+sodipodi:[^\s=]*="[^"]*"', '', svg_content)
+    svg_content = re.sub(r'\s+inkscape:[^\s=]*="[^"]*"', '', svg_content)
+    
     # Clean up whitespace but preserve structure
     svg_content = '\n'.join(line.strip() for line in svg_content.split('\n') if line.strip())
+    
     return svg_content
 
 
